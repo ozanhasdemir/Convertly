@@ -29,4 +29,5 @@ gh_auth.log
 
 # Deploy packages
 *.zip
+convertly-deploy/
 COMMIT_MSG.txt
