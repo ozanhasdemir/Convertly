@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#0f1226" />
+  <!-- top arrow: from -> (indigo) -->
+  <path
+    d="M16 25h26l-6-6 4-4 13 13-13 13-4-4 6-6H16z"
+    fill="#6366f1"
+  />
+  <!-- bottom arrow: to <- (emerald) -->
+  <path
+    d="M48 39H22l6 6-4 4-13-13 13-13 4 4-6 6h26z"
+    fill="#10b981"
+    transform="translate(0 0)"
+  />
+</svg>
