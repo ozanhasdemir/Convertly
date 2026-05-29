@@ -26,3 +26,7 @@ dist-ssr
 
 # Auth artifacts (never commit)
 gh_auth.log
+
+# Deploy packages
+*.zip
+COMMIT_MSG.txt

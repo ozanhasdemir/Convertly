@@ -1,0 +1,28 @@
+# Convertly — Apache config for cPanel static hosting
+
+# --- Force HTTPS (safe once AutoSSL/Let's Encrypt cert is active) ---
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTPS} off
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # --- SPA fallback: serve index.html for any path that isn't a real file ---
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# --- Caching: Vite fingerprints asset filenames, so cache them hard ---
+<IfModule mod_expires.c>
+  ExpiresActive On
+  # Hashed JS/CSS/images live in /assets and never change content
+  <FilesMatch "\.(js|css|svg|png|jpg|jpeg|gif|woff2?)$">
+    ExpiresDefault "access plus 1 year"
+    Header set Cache-Control "public, immutable"
+  </FilesMatch>
+  # Never cache the HTML entry point, so new deploys show up immediately
+  <FilesMatch "\.(html)$">
+    ExpiresDefault "access plus 0 seconds"
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+</IfModule>
