@@ -1,67 +1,61 @@
-import { useEffect, useState } from 'react'
-import { fetchLatest } from '../api/frankfurter'
-import { currencyToFlag, formatAmount } from '../lib/format'
-import type { CurrencyMap } from '../api/frankfurter'
+import { useMemo } from 'react'
+import { convert, type PriceData } from '../lib/rates'
+import { formatAmount } from '../lib/format'
+import type { Currency } from '../types'
+import CurrencyIcon from './CurrencyIcon'
 
 interface Props {
   base: string
   amount: number
-  currencies: CurrencyMap
+  currencies: Currency[]
+  prices: PriceData
 }
 
-// A compact set of widely-traded currencies for the "at a glance" panel.
-const POPULAR = ['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'CNY']
+// A mix of major fiat and crypto for the "at a glance" panel.
+const TARGETS = ['USD', 'EUR', 'GBP', 'JPY', 'BTC', 'ETH']
 
-export default function MultiCurrency({ base, amount, currencies }: Props) {
-  const [rates, setRates] = useState<Record<string, number>>({})
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+export default function MultiCurrency({
+  base,
+  amount,
+  currencies,
+  prices,
+}: Props) {
+  const baseCur = useMemo(
+    () => currencies.find((c) => c.code === base),
+    [currencies, base],
+  )
 
-  const symbols = POPULAR.filter((c) => c !== base && c in currencies)
+  const rows = useMemo(() => {
+    if (!baseCur) return []
+    return TARGETS.filter((code) => code !== base)
+      .map((code) => currencies.find((c) => c.code === code))
+      .filter((c): c is Currency => Boolean(c))
+      .map((cur) => ({
+        cur,
+        value: convert(amount, baseCur, cur, prices),
+      }))
+  }, [baseCur, base, amount, currencies, prices])
 
-  useEffect(() => {
-    if (symbols.length === 0) return
-    const controller = new AbortController()
-    setLoading(true)
-    setError(null)
-    fetchLatest(base, symbols, 1, controller.signal)
-      .then((res) => setRates(res.rates))
-      .catch((err: unknown) => {
-        if ((err as Error).name !== 'AbortError') {
-          setError('Could not load rates.')
-        }
-      })
-      .finally(() => setLoading(false))
-    return () => controller.abort()
-    // symbols is derived from base+currencies; base is the meaningful dep.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [base, currencies])
+  if (rows.length === 0) return null
 
   return (
     <section className="card multi-card">
       <h2 className="multi-title">
         {formatAmount(amount)} {base} in other currencies
       </h2>
-      {error ? (
-        <p className="chart-msg error">{error}</p>
-      ) : (
-        <ul className={'multi-grid' + (loading ? ' loading' : '')}>
-          {symbols.map((code) => {
-            const value = rates[code] != null ? rates[code] * amount : null
-            return (
-              <li key={code} className="multi-item">
-                <span className="multi-flag">{currencyToFlag(code)}</span>
-                <div className="multi-info">
-                  <span className="multi-code">{code}</span>
-                  <span className="multi-value">
-                    {value != null ? formatAmount(value) : '—'}
-                  </span>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      )}
+      <ul className="multi-grid">
+        {rows.map(({ cur, value }) => (
+          <li key={cur.code} className="multi-item">
+            <CurrencyIcon cur={cur} size={22} />
+            <div className="multi-info">
+              <span className="multi-code">{cur.code}</span>
+              <span className="multi-value">
+                {value != null ? formatAmount(value) : '—'}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

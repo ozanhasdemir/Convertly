@@ -116,6 +116,14 @@ a {
   margin-top: 12px;
 }
 
+.notice {
+  color: var(--text-light);
+  font-size: 14px;
+  padding: 14px 18px;
+  border-color: rgba(244, 63, 94, 0.4);
+  background: linear-gradient(180deg, rgba(244, 63, 94, 0.12), transparent);
+}
+
 /* ---------- Converter ---------- */
 .converter {
   padding-bottom: 16px;
@@ -351,6 +359,24 @@ a {
   text-align: center;
   color: var(--text-faint);
   font-size: 14px;
+}
+
+.cur-img {
+  border-radius: 50%;
+  object-fit: contain;
+  display: inline-block;
+  vertical-align: middle;
+  background: rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.cur-group {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  font-weight: 700;
+  padding: 12px 10px 4px;
 }
 
 /* ---------- Chart ---------- */

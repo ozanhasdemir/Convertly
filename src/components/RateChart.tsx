@@ -7,12 +7,14 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { fetchTimeSeries, type RatePoint } from '../api/frankfurter'
+import { crossSeries, fetchUsdSeries, type HistoryPoint } from '../lib/history'
+import { formatAmount } from '../lib/format'
 import { RANGES, rangeToDates, shortLabel, type RangeKey } from '../lib/dates'
+import type { Currency } from '../types'
 
 interface Props {
-  from: string
-  to: string
+  fromCur: Currency
+  toCur: Currency
 }
 
 interface TooltipProps {
@@ -23,23 +25,35 @@ interface TooltipProps {
   to: string
 }
 
+/** Compact y-axis label: no decimals for big numbers, precision for small. */
+function formatAxis(v: number): string {
+  const abs = Math.abs(v)
+  if (abs >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 0 })
+  if (abs >= 1) return v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  if (abs === 0) return '0'
+  return Number(v.toPrecision(3)).toString()
+}
+
 function ChartTooltip({ active, payload, label, from, to }: TooltipProps) {
   if (!active || !payload?.length) return null
   return (
     <div className="chart-tip">
       <span className="chart-tip-date">{label && shortLabel(label)}</span>
       <span className="chart-tip-rate">
-        1 {from} = {payload[0].value.toFixed(4)} {to}
+        1 {from} = {formatAmount(payload[0].value)} {to}
       </span>
     </div>
   )
 }
 
-export default function RateChart({ from, to }: Props) {
+export default function RateChart({ fromCur, toCur }: Props) {
   const [range, setRange] = useState<RangeKey>('1M')
-  const [data, setData] = useState<RatePoint[]>([])
+  const [data, setData] = useState<HistoryPoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const from = fromCur.code
+  const to = toCur.code
 
   useEffect(() => {
     if (from === to) {
@@ -52,16 +66,24 @@ export default function RateChart({ from, to }: Props) {
     const controller = new AbortController()
     setLoading(true)
     setError(null)
-    fetchTimeSeries(from, to, start, end, controller.signal)
-      .then((points) => setData(points))
+
+    Promise.all([
+      fetchUsdSeries(fromCur, { start, end, days }, controller.signal),
+      fetchUsdSeries(toCur, { start, end, days }, controller.signal),
+    ])
+      .then(([fromSeries, toSeries]) => {
+        setData(crossSeries(fromSeries, toSeries))
+      })
       .catch((err: unknown) => {
         if ((err as Error).name !== 'AbortError') {
           setError('Could not load historical rates.')
         }
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
     return () => controller.abort()
-  }, [from, to, range])
+  }, [fromCur, toCur, from, to, range])
 
   const { min, max, change } = useMemo(() => {
     if (data.length === 0) return { min: 0, max: 0, change: 0 }
@@ -145,8 +167,8 @@ export default function RateChart({ from, to }: Props) {
                 tick={{ fill: '#8b90b5', fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
-                width={52}
-                tickFormatter={(v: number) => v.toFixed(3)}
+                width={64}
+                tickFormatter={formatAxis}
               />
               <Tooltip
                 content={<ChartTooltip from={from} to={to} />}

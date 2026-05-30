@@ -1,70 +1,106 @@
-import { useEffect, useState } from 'react'
-import {
-  fetchCurrencies,
-  fetchLatest,
-  type CurrencyMap,
-} from './api/frankfurter'
+import { useEffect, useMemo, useState } from 'react'
+import { fetchCurrencies, fetchLatest } from './api/frankfurter'
+import { fetchTopCoins } from './api/coingecko'
+import { rate as computeRate, type PriceData } from './lib/rates'
+import type { Currency } from './types'
 import Converter from './components/Converter'
 import RateChart from './components/RateChart'
 import MultiCurrency from './components/MultiCurrency'
 
+const CRYPTO_COUNT = 20
+
 export default function App() {
-  const [currencies, setCurrencies] = useState<CurrencyMap>({})
+  const [currencies, setCurrencies] = useState<Currency[]>([])
+  const [prices, setPrices] = useState<PriceData>({ fiatUsd: {}, cryptoUsd: {} })
+  const [rateDate, setRateDate] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [cryptoOffline, setCryptoOffline] = useState(false)
 
-  const [from, setFrom] = useState('USD')
-  const [to, setTo] = useState('EUR')
+  const [from, setFrom] = useState('BTC')
+  const [to, setTo] = useState('USD')
   const [amount, setAmount] = useState(1)
 
-  const [rate, setRate] = useState<number | null>(null)
-  const [rateDate, setRateDate] = useState<string | null>(null)
-  const [rateLoading, setRateLoading] = useState(true)
-  const [rateError, setRateError] = useState<string | null>(null)
-
-  // Load the currency list once on mount.
   useEffect(() => {
     const controller = new AbortController()
-    fetchCurrencies(controller.signal)
-      .then((map) => {
-        setCurrencies(map)
-        setReady(true)
-      })
-      .catch((err: unknown) => {
-        if ((err as Error).name !== 'AbortError') {
-          setLoadError('Could not reach the rates service. Please retry.')
+    const { signal } = controller
+
+    async function load() {
+      // Fiat list + USD-based rates are required; crypto is best-effort so a
+      // CoinGecko hiccup (rate limit) still leaves a working fiat converter.
+      const [fiatList, usdBase, coins] = await Promise.allSettled([
+        fetchCurrencies(signal),
+        fetchLatest('USD', [], 1, signal),
+        fetchTopCoins(CRYPTO_COUNT, signal),
+      ])
+
+      if (signal.aborted) return
+
+      if (fiatList.status === 'rejected' || usdBase.status === 'rejected') {
+        setLoadError('Could not reach the rates service. Please retry.')
+        return
+      }
+
+      const registry: Currency[] = Object.entries(fiatList.value).map(
+        ([code, name]) => ({ code, name, kind: 'fiat' as const }),
+      )
+      const taken = new Set(registry.map((c) => c.code))
+      const cryptoUsd: Record<string, number> = {}
+
+      if (coins.status === 'fulfilled') {
+        for (const coin of coins.value) {
+          const code = coin.symbol.toUpperCase()
+          if (taken.has(code)) continue // avoid clashing with a fiat code
+          taken.add(code)
+          registry.push({
+            code,
+            name: coin.name,
+            kind: 'crypto',
+            id: coin.id,
+            image: coin.image,
+          })
+          cryptoUsd[code] = coin.current_price
         }
-      })
+      } else {
+        setCryptoOffline(true)
+      }
+
+      setCurrencies(registry)
+      setPrices({ fiatUsd: usdBase.value.rates, cryptoUsd })
+      setRateDate(usdBase.value.date)
+
+      // If our preferred defaults aren't available (e.g. crypto offline),
+      // fall back to a guaranteed fiat pair.
+      if (!taken.has('BTC')) {
+        setFrom('USD')
+        setTo('EUR')
+      }
+      setReady(true)
+    }
+
+    load().catch((err: unknown) => {
+      if ((err as Error).name !== 'AbortError') {
+        setLoadError('Something went wrong loading Convertly. Please retry.')
+      }
+    })
     return () => controller.abort()
   }, [])
 
-  // Refresh the live rate whenever the pair changes.
-  useEffect(() => {
-    if (!ready) return
-    if (from === to) {
-      setRate(1)
-      setRateDate(null)
-      setRateLoading(false)
-      setRateError(null)
-      return
-    }
-    const controller = new AbortController()
-    setRateLoading(true)
-    setRateError(null)
-    fetchLatest(from, [to], 1, controller.signal)
-      .then((res) => {
-        setRate(res.rates[to])
-        setRateDate(res.date)
-      })
-      .catch((err: unknown) => {
-        if ((err as Error).name !== 'AbortError') {
-          setRateError('Could not load the rate.')
-          setRate(null)
-        }
-      })
-      .finally(() => setRateLoading(false))
-    return () => controller.abort()
-  }, [from, to, ready])
+  const fromCur = useMemo(
+    () => currencies.find((c) => c.code === from),
+    [currencies, from],
+  )
+  const toCur = useMemo(
+    () => currencies.find((c) => c.code === to),
+    [currencies, to],
+  )
+
+  const liveRate = useMemo(() => {
+    if (!fromCur || !toCur) return null
+    return computeRate(fromCur, toCur, prices)
+  }, [fromCur, toCur, prices])
+
+  const involvesCrypto = fromCur?.kind === 'crypto' || toCur?.kind === 'crypto'
 
   function handleSwap() {
     setFrom(to)
@@ -78,7 +114,7 @@ export default function App() {
           <img src="/convertly.svg" width={36} height={36} alt="" />
           <span className="brand-name">Convertly</span>
         </a>
-        <p className="tagline">Real rates, instantly.</p>
+        <p className="tagline">Fiat &amp; crypto, converted.</p>
       </header>
 
       <main className="content">
@@ -88,28 +124,38 @@ export default function App() {
             <button onClick={() => window.location.reload()}>Retry</button>
           </div>
         ) : !ready ? (
-          <div className="card boot-loading">Loading currencies…</div>
+          <div className="card boot-loading">Loading rates…</div>
         ) : (
           <>
+            {cryptoOffline && (
+              <div className="card notice">
+                Crypto prices are temporarily unavailable (rate limited) — fiat
+                conversion is still live.
+              </div>
+            )}
             <Converter
               currencies={currencies}
+              fromCur={fromCur}
+              toCur={toCur}
               from={from}
               to={to}
               amount={amount}
-              rate={rate}
+              rate={liveRate}
               rateDate={rateDate}
-              loading={rateLoading}
-              error={rateError}
+              live={involvesCrypto}
               onAmountChange={setAmount}
               onFromChange={setFrom}
               onToChange={setTo}
               onSwap={handleSwap}
             />
-            <RateChart from={from} to={to} />
+            {fromCur && toCur && (
+              <RateChart fromCur={fromCur} toCur={toCur} />
+            )}
             <MultiCurrency
               base={from}
               amount={Number.isNaN(amount) ? 0 : amount}
               currencies={currencies}
+              prices={prices}
             />
           </>
         )}
@@ -117,11 +163,14 @@ export default function App() {
 
       <footer className="site-footer">
         <span>
-          Rates from{' '}
+          Fiat rates from{' '}
           <a href="https://frankfurter.dev" target="_blank" rel="noreferrer">
             Frankfurter
           </a>{' '}
-          · published by the European Central Bank
+          (ECB) · crypto from{' '}
+          <a href="https://www.coingecko.com" target="_blank" rel="noreferrer">
+            CoinGecko
+          </a>
         </span>
         <span className="footer-by">
           A{' '}

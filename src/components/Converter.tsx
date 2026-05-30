@@ -1,16 +1,18 @@
-import type { CurrencyMap } from '../api/frankfurter'
+import type { Currency } from '../types'
 import { formatAmount } from '../lib/format'
 import CurrencySelect from './CurrencySelect'
 
 interface Props {
-  currencies: CurrencyMap
+  currencies: Currency[]
+  fromCur?: Currency
+  toCur?: Currency
   from: string
   to: string
   amount: number
   rate: number | null
   rateDate: string | null
-  loading: boolean
-  error: string | null
+  /** True when a crypto is involved — prices are live rather than daily ECB. */
+  live: boolean
   onAmountChange: (amount: number) => void
   onFromChange: (code: string) => void
   onToChange: (code: string) => void
@@ -19,19 +21,21 @@ interface Props {
 
 export default function Converter({
   currencies,
+  fromCur,
+  toCur,
   from,
   to,
   amount,
   rate,
   rateDate,
-  loading,
-  error,
+  live,
   onAmountChange,
   onFromChange,
   onToChange,
   onSwap,
 }: Props) {
-  const result = rate != null ? amount * rate : null
+  const safeAmount = Number.isNaN(amount) ? 0 : amount
+  const result = rate != null ? safeAmount * rate : null
 
   return (
     <section className="card converter">
@@ -81,14 +85,8 @@ export default function Converter({
         {/* TO side */}
         <div className="conv-side to">
           <span className="conv-label">Converted to</span>
-          <div className={'conv-result' + (loading ? ' loading' : '')}>
-            {error ? (
-              <span className="conv-error">—</span>
-            ) : result != null ? (
-              formatAmount(result)
-            ) : (
-              '…'
-            )}
+          <div className="conv-result">
+            {result != null ? formatAmount(result) : <span className="conv-error">—</span>}
           </div>
           <CurrencySelect
             variant="to"
@@ -101,15 +99,16 @@ export default function Converter({
       </div>
 
       <div className="conv-footer">
-        {error ? (
-          <span className="conv-error">{error}</span>
-        ) : rate != null ? (
+        {rate != null && fromCur && toCur ? (
           <span className="conv-rate">
-            1 {from} = {rate.toFixed(4)} {to}
-            {rateDate && <span className="conv-asof"> · as of {rateDate}</span>}
+            1 {from} = {formatAmount(rate)} {to}
+            <span className="conv-asof">
+              {' · '}
+              {live ? 'live prices' : `as of ${rateDate ?? '—'}`}
+            </span>
           </span>
         ) : (
-          <span className="conv-rate">Fetching rate…</span>
+          <span className="conv-error">Rate unavailable for this pair.</span>
         )}
       </div>
     </section>
